@@ -113,6 +113,11 @@ export function detectKind(wb: XLSX.WorkBook): IngestResult['kind'] {
   if (SCRAP_KEYS.every(k => cols.has(k))) return 'scrap';
   if (CAL_PROD_KEYS.every(k => cols.has(k))) return 'cal_prod';
   if (LAM_PROD_KEYS.every(k => cols.has(k))) return 'lam_prod';
+  // Relaxed LAM fallback: some months' exports drop `Quantity` and/or `Sq Mtr`
+  // (e.g. FLOORING LAM JUNE 2026 lacks Quantity). Accept as LAM if the workbook
+  // has the core LAM-shape markers even when strict LAM_PROD_KEYS misses.
+  const LAM_CORE = ['Order', 'CreatDate', 'Material', 'Gross wt.'];
+  if (LAM_CORE.every(k => cols.has(k))) return 'lam_prod';
   return null;
 }
 
@@ -245,10 +250,20 @@ function parseDowntime(wb: XLSX.WorkBook, source: string, fsha: string): Downtim
   const sh = wb.Sheets[detailName];
   const rows: any[][] = XLSX.utils.sheet_to_json(sh, { header: 1, defval: null });
   const out: DowntimeRow[] = [];
-  // Row 12 (index) has machine block labels; row 13 has subheaders per block.
-  const HEADER_ROW = 12;
-  const SUBHEADER_ROW = 13;
-  const DATA_START = 14;
+  // Dynamically locate the subheader row (the one containing 'Min' as a column
+  // header) so we handle month-to-month layout drift. Historically:
+  //   July/Aug/June/May 2026: SUBHEADER=13, so HEADER=12, DATA_START=14.
+  //   April 2026: SUBHEADER=14, so HEADER=13, DATA_START=15 (one row shifted).
+  // Scan rows 5..25 for a row that contains a cell whose trimmed lowercase value
+  // is exactly 'min'. Fall back to the historical 13 if none found.
+  let SUBHEADER_ROW = 13;
+  for (let ri = 5; ri < Math.min(rows.length, 25); ri++) {
+    const r = rows[ri] || [];
+    const hasMin = r.some((v) => v && String(v).trim().toLowerCase() === 'min');
+    if (hasMin) { SUBHEADER_ROW = ri; break; }
+  }
+  const HEADER_ROW = SUBHEADER_ROW - 1;
+  const DATA_START = SUBHEADER_ROW + 1;
   if (rows.length <= DATA_START) return out;
   const blockStarts: Array<{ col: number; name: string }> = [];
   for (let c = 0; c < (rows[HEADER_ROW]?.length || 0); c++) {

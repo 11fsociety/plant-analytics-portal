@@ -17,11 +17,12 @@ const ROOT = resolve(__dirname, '..');
 const MAIN = resolve(ROOT, '..', 'plant-analytics', 'lib');
 
 // Files that MUST stay byte-equivalent (modulo comments). Drift → fail.
-const STRICT_MIRRORS = ['auth.ts', 'ingest.ts', 'predictive.ts'];
+const STRICT_MIRRORS = ['auth.ts', 'predictive.ts'];
 // Files with a documented, expected divergence. Drift → warn only.
 const KNOWN_DIVERGENCES = {
-  'analytics.ts': 'MACHINE_MAPS keyed by plant + machines(w, shift, range, plant) accepts plant arg (portal multi-plant refactor)',
+  'analytics.ts': 'MACHINE_MAPS keyed by plant + machines(w, shift, range, plant) accepts plant arg + total_length_m in plantSummary (portal multi-plant refactor)',
   'warehouse.ts': 'saveWarehouse multipart:true + multi-plant refactor (Plant type, loadWarehouse/saveWarehouse take plant arg, blob key per plant, MachineEntry + extendMachineMap for auto-populated machine map)',
+  'ingest.ts': 'relaxed LAM sniffer (accepts files missing Quantity like FLOORING LAM JUNE) + dynamic downtime SUBHEADER_ROW detection (handles April 2026 shift-by-1 layout). Fixes silent 0-row ingests.',
 };
 const MIRRORS = [
   ...STRICT_MIRRORS.map((name) => ({ name, strict: true })),

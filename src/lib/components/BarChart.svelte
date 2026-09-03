@@ -3,17 +3,13 @@
 
   export let title: string;
   export let subtitle: string | undefined = undefined;
-  /** Array of {label, value} — value goes to the right, label on the y-axis. */
+  /** Array of {label, value} — value goes up, label on the x-axis. */
   export let data: Array<{ label: string; value: number }> = [];
   /** Unit for tooltip, e.g. "hrs" or "t". */
   export let unit = '';
-  /** Accent CSS color. Defaults to the CSS var --accent. Callers can pass another for scrap vs downtime differentiation. */
-  export let accent = 'var(--accent)';
   /** Optional value formatter for the axis + tooltip. */
   export let format: (v: number) => string = (v) => v.toLocaleString(undefined, { maximumFractionDigits: 1 });
-  /** Use multi-color palette for bars. Set to false to use single accent color. */
-  export let useMultiColor = true;
-  /** Compact mode — reduces min-heights. */
+  /** Compact mode reduces chart heights. */
   export let compact = false;
 
   const PALETTE = ['#21b573', '#3d7de6', '#ff9500', '#e5484d', '#9068e0', '#22c896', '#60a5fa', '#ffb454', '#f28086', '#b092ea'];
@@ -38,17 +34,11 @@
     }
     if (token !== renderSeq) return; // re-check after destroy
 
-    // Truncate long labels to 30 chars + ellipsis
-    const labels = data.map((d) => d.label.length > 30 ? d.label.slice(0, 30) + '…' : d.label);
+    // Truncate long labels to 20 chars + ellipsis
+    const labels = data.map((d) => d.label.length > 20 ? d.label.slice(0, 20) + '…' : d.label);
     const values = data.map((d) => d.value);
-
-    const backgroundColor = useMultiColor
-      ? data.map((_, i) => PALETTE[i % PALETTE.length])
-      : accent;
-
-    const borderColor = useMultiColor
-      ? data.map((_, i) => PALETTE[i % PALETTE.length])
-      : accent;
+    // Cycle through palette
+    const colors = data.map((_, i) => PALETTE[i % PALETTE.length]);
 
     chart = new Chart(container, {
       type: 'bar',
@@ -56,14 +46,14 @@
         labels,
         datasets: [{
           data: values,
-          backgroundColor,
-          borderColor,
+          backgroundColor: colors,
+          borderColor: colors,
           borderRadius: 6,
           borderWidth: 0,
         }],
       },
       options: {
-        indexAxis: 'y',
+        indexAxis: 'x',
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
@@ -71,7 +61,7 @@
           tooltip: {
             callbacks: {
               label: (ctx: any) => {
-                const val = ctx.parsed.x;
+                const val = ctx.parsed.y;
                 const rawLabel = data[ctx.dataIndex]?.label ?? '';
                 return `${rawLabel}: ${format(val)}${unit ? ' ' + unit : ''}`;
               },
@@ -80,6 +70,16 @@
         },
         scales: {
           x: {
+            grid: { display: false },
+            ticks: {
+              color: '#667085',
+              font: { size: 10 },
+              autoSkip: false,
+              maxRotation: 35,
+              minRotation: 35,
+            },
+          },
+          y: {
             grid: { color: 'rgba(0,0,0,0.05)' },
             ticks: {
               color: '#667085',
@@ -87,13 +87,6 @@
               callback: (val: any) => format(+val),
             },
             beginAtZero: true,
-          },
-          y: {
-            grid: { display: false },
-            ticks: {
-              color: '#667085',
-              font: { size: 10 },
-            },
           },
         },
       },
@@ -103,12 +96,8 @@
   // The reactive statement below fires once when `container` binds after mount,
   // then again on every prop change. Do NOT also call render() in onMount —
   // that would double-fire on the initial paint.
-  $: {
-    useMultiColor;
-    accent;
-    if (container && data) {
-      render();
-    }
+  $: if (container && data) {
+    render();
   }
 
   onDestroy(() => {
@@ -124,7 +113,7 @@
     </div>
   </header>
 
-  <div class="chart-body" class:compact>
+  <div class="chart-body">
     {#if data.length === 0}
       <div class="empty">No data</div>
     {:else}
@@ -146,14 +135,16 @@
     gap: 10px;
     min-height: 260px;
   }
-  .chart-card.compact { min-height: 180px; }
+  .chart-card.compact {
+    min-height: 180px;
+  }
   .chart-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
   .titles { min-width: 0; }
   .chart-title { color: var(--highlight); font-size: 13px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; }
   .chart-subtitle { color: var(--muted); font-size: 12px; margin-top: 3px; }
   .chart-body { position: relative; flex: 1; min-height: 220px; display: flex; align-items: center; justify-content: center; }
-  .chart-body.compact { min-height: 140px; }
+  .chart-card.compact .chart-body { min-height: 140px; }
   .chart-body canvas { width: 100% !important; height: 100% !important; }
   .empty { color: var(--muted); font-size: 12px; text-align: center; }
 </style>

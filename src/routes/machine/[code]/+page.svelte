@@ -160,6 +160,7 @@
         forecast={toTonneForecast(data.production_insights.forecast)}
         anomalies={toTonneAnoms(data.production_insights.anomalies)}
         unit="t"
+        compact={true}
         compareSeries={data.daily_production_compare ? toTonneSeries(data.daily_production_compare) : null}
       />
       <ChartOverlay
@@ -169,6 +170,7 @@
         forecast={toTonneForecast(data.scrap_insights.forecast)}
         anomalies={toTonneAnoms(data.scrap_insights.anomalies)}
         unit="t"
+        compact={true}
         compareSeries={data.daily_scrap_compare ? toTonneSeries(data.daily_scrap_compare) : null}
       />
       <ChartOverlay
@@ -178,6 +180,7 @@
         forecast={data.downtime_insights.forecast}
         anomalies={data.downtime_insights.anomalies}
         unit="hrs"
+        compact={true}
         compareSeries={data.daily_downtime_compare || null}
       />
     </div>

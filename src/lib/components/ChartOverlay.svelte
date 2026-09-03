@@ -15,6 +15,9 @@
   export let unit = '';
   /** Optional single-line diagnostic footnote — e.g. "holt-winters · α=0.3 · rmse=142". */
   export let diagnostic: string | undefined = undefined;
+  /** Compact mode reduces the card + chart height. Use for dashboard where the
+   *  chart is context, not the primary content. */
+  export let compact = false;
 
   let container: HTMLDivElement;
   let chart: any = null;
@@ -154,7 +157,21 @@
         plugins: {
           legend: { display: false },
           tooltip: {
+            // Filter out the low/high band datasets — they're just visual shading,
+            // not distinct data points, and duplicate the point-forecast value in the tooltip.
+            filter: (item: any) => {
+              const l = item.dataset?.label as string | undefined;
+              return l !== 'Forecast low' && l !== 'Forecast high';
+            },
             callbacks: {
+              // Show a color square that matches the actual line color (borderColor)
+              // rather than the transparent backgroundColor that Chart.js picks by default.
+              labelColor: (ctx: any) => ({
+                borderColor: ctx.dataset.borderColor,
+                backgroundColor: ctx.dataset.borderColor,
+                borderWidth: 0,
+                borderRadius: 2,
+              }),
               label: (ctx: any) => {
                 const dsLabel = ctx.dataset.label as string;
                 const val = ctx.parsed.y;
@@ -241,6 +258,8 @@
 </div>
 
 <style>
+  .chart-card.compact { min-height: 200px; padding: 16px; }
+  .chart-card.compact .chart-body { min-height: 140px; }
   .chart-card {
     background: var(--panel);
     border: 1px solid var(--panel-border);

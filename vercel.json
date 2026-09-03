@@ -1,0 +1,7 @@
+{
+  "framework": "sveltekit",
+  "buildCommand": "vite build",
+  "devCommand": "vite dev --port 5173",
+  "installCommand": "npm install",
+  "outputDirectory": ".svelte-kit/output"
+}

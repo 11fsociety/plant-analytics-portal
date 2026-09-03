@@ -5,6 +5,9 @@
   import KpiCard from '$lib/components/KpiCard.svelte';
   import ChartOverlay from '$lib/components/ChartOverlay.svelte';
   import DateRangePicker from '$lib/components/DateRangePicker.svelte';
+  import BarChart from '$lib/components/BarChart.svelte';
+  import DonutChart from '$lib/components/DonutChart.svelte';
+  import HorizontalBar from '$lib/components/HorizontalBar.svelte';
   import { fmt, fmtT, toTonnes } from '$lib/format';
 
   let data: any = null;
@@ -16,6 +19,7 @@
   let dateTo: string | null = null;
   let compareMode = false;
   let mounted = false;
+  let showFilters = false;
   // Serialise concurrent refresh() calls. Rapid shift toggle (all→A→B) would
   // otherwise let slower requests clobber state after faster later ones.
   let fetchSeq = 0;
@@ -123,13 +127,29 @@
 <h1>Dashboard</h1>
 <p class="page-subtitle">Ops overview of production, downtime and scrap</p>
 
-<DateRangePicker from={dateFrom} to={dateTo} compare={compareMode} allowCompare={true} on:change={handleDateChange} />
+<button class="filters-toggle" on:click={() => (showFilters = !showFilters)}>
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="4" y1="21" x2="4" y2="14"></line>
+    <line x1="4" y1="10" x2="4" y2="3"></line>
+    <line x1="12" y1="21" x2="12" y2="12"></line>
+    <line x1="12" y1="8" x2="12" y2="3"></line>
+    <line x1="20" y1="21" x2="20" y2="16"></line>
+    <line x1="20" y1="12" x2="20" y2="3"></line>
+    <line x1="1" y1="14" x2="7" y2="14"></line>
+    <line x1="9" y1="8" x2="15" y2="8"></line>
+    <line x1="17" y1="16" x2="23" y2="16"></line>
+  </svg>
+  Filters
+</button>
 
-<div class="chip-row">
-  <button class="chip {shift === 'all' ? 'active' : ''}" on:click={() => (shift = 'all')}>All shifts</button>
-  <button class="chip {shift === 'A' ? 'active' : ''}" on:click={() => (shift = 'A')}>Shift A · Day</button>
-  <button class="chip {shift === 'B' ? 'active' : ''}" on:click={() => (shift = 'B')}>Shift B · Night</button>
-</div>
+{#if showFilters}
+  <DateRangePicker from={dateFrom} to={dateTo} compare={compareMode} allowCompare={true} on:change={handleDateChange} />
+  <div class="chip-row">
+    <button class="chip {shift === 'all' ? 'active' : ''}" on:click={() => (shift = 'all')}>All shifts</button>
+    <button class="chip {shift === 'A' ? 'active' : ''}" on:click={() => (shift = 'A')}>Shift A · Day</button>
+    <button class="chip {shift === 'B' ? 'active' : ''}" on:click={() => (shift = 'B')}>Shift B · Night</button>
+  </div>
+{/if}
 
 {#if error}
   <div class="empty">Error: {error}</div>
@@ -151,6 +171,15 @@
     <KpiCard label="Scrap % of net" value={plant.scrap_pct_of_net != null ? `${plant.scrap_pct_of_net}%` : '-'} tone="danger" icon="ratio" />
   </div>
 
+  <h2>Machines</h2>
+  <div class="machine-chips">
+    {#each data.machines as m}
+      <a class="machine-chip" href="/machine/{m.code}?plant={plantSlug}">
+        {m.name}<span class="chip-code">{m.code}</span>
+      </a>
+    {/each}
+  </div>
+
   {#if insights?.metrics?.production}
     <h2>Daily production trend</h2>
     <ChartOverlay
@@ -162,11 +191,65 @@
       compareSeries={compareMode && insights.metrics.production.compare_series ? toTonneSeries(insights.metrics.production.compare_series) : null}
       unit="t"
       diagnostic={diagFor(insights.metrics.production)}
+      compact={true}
     />
   {:else if insightsError}
     <h2>Daily production trend</h2>
     <div class="forecast-unavailable">{insightsError} — KPIs above still valid.</div>
   {/if}
+
+  <h2>Analytics</h2>
+  <div class="analytics-grid">
+    <BarChart
+      title="Downtime hours by machine"
+      data={data.machines.filter(m=>m.downtime_hrs>0).map(m=>({label:m.name,value:m.downtime_hrs}))}
+      unit="hrs"
+      compact
+    />
+    <BarChart
+      title="Downtime by reason (event count)"
+      data={data.downtime_by_events_plant.slice(0,10).map(r=>({label:r.reason||'Unclassified',value:r.events}))}
+      unit="events"
+      compact
+    />
+    <BarChart
+      title="Scrap by machine (tonnes)"
+      data={data.machines.filter(m=>m.scrap_kg>0).map(m=>({label:m.name,value:m.scrap_kg/1000}))}
+      unit="t"
+      compact
+    />
+    <DonutChart
+      title="Downtime reason mix (plant)"
+      data={data.downtime_reasons_plant.map(r=>({label:r.reason||'Unclassified',value:r.hrs}))}
+      unit="hrs"
+      compact
+    />
+    <div class="analytics-full">
+      <HorizontalBar
+        title="Top 10 scrap categories (tonnes)"
+        data={data.scrap_reasons_plant.slice(0,10).map(r=>({label:r.reason,value:r.kg/1000}))}
+        unit="t"
+      />
+    </div>
+    <ChartOverlay
+      title="Daily net production"
+      subtitle="Tonnes per day"
+      series={toTonneSeries(data.daily_production_plant)}
+      forecast={[]}
+      anomalies={[]}
+      unit="t"
+      compact
+    />
+    <ChartOverlay
+      title="Daily scrap"
+      subtitle="Tonnes per day"
+      series={toTonneSeries(data.daily_scrap_plant)}
+      forecast={[]}
+      anomalies={[]}
+      unit="t"
+      compact
+    />
+  </div>
 
   <h2>Warehouse</h2>
   <div class="warehouse-row">
@@ -176,38 +259,33 @@
     <div class="mini-card"><span class="mini-label">Date range</span><span class="mini-value small">{data.date_range?.min || '—'} → {data.date_range?.max || '—'}</span></div>
     <div class="mini-card"><span class="mini-label">Last update</span><span class="mini-value small">{data.updated_at?.slice(0, 19).replace('T', ' ') || '—'}</span></div>
   </div>
-
-  <h2>Machines</h2>
-  <div class="machine-chips">
-    {#each data.machines as m}
-      <a class="machine-chip" href="/machine/{m.code}?plant={plantSlug}">
-        {m.name}<span class="chip-code">{m.code}</span>
-      </a>
-    {/each}
-  </div>
-
-  <h2>Recent ingest activity</h2>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr><th>Time</th><th>File</th><th>Kind</th><th class="num">Inserted</th><th class="num">Skipped / swept</th></tr>
-      </thead>
-      <tbody>
-        {#each (data.ingest_log || []).slice(0, 12) as e}
-          <tr>
-            <td class="small">{e.at?.slice(0, 19).replace('T', ' ') ?? '-'}</td>
-            <td>{e.filename}</td>
-            <td><span class="kind-pill kind-{e.kind}">{e.kind}</span></td>
-            <td class="num">{e.inserted}</td>
-            <td class="num">{e.skipped}</td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-  </div>
 {/if}
 
 <style>
+  .filters-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    margin: 10px 0 12px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .filters-toggle:hover {
+    background: var(--panel-2);
+    border-color: var(--accent);
+  }
+  .filters-toggle svg {
+    width: 14px;
+    height: 14px;
+    opacity: 0.7;
+  }
   .chip-row { display: flex; gap: 8px; margin: 6px 0 18px; flex-wrap: wrap; }
   .warehouse-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
   .mini-card {
@@ -225,7 +303,6 @@
   .mini-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
   .mini-value { color: var(--highlight); font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .mini-value.small { font-size: 13px; font-weight: 500; }
-  .table-wrap { margin-bottom: 24px; overflow-x: auto; }
   .empty {
     background: var(--panel);
     border: 1px solid var(--panel-border);
@@ -278,4 +355,7 @@
   }
   .machine-chip:hover { background: var(--panel-2); border-color: var(--accent); transform: translateY(-1px); }
   .chip-code { color: var(--muted); font-size: 11px; letter-spacing: 0.3px; }
+  .analytics-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 24px; }
+  @media (min-width: 900px) { .analytics-grid { grid-template-columns: repeat(2, 1fr); } }
+  .analytics-full { grid-column: 1 / -1; }
 </style>

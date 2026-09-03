@@ -231,6 +231,22 @@ export function mergeInto(
  * itself, until an operator gives it a proper alias) and no downtime aliases.
  * Returns the list of newly-added codes so callers can log them.
  */
+/** Codes that should never enter machine_map (they are downtime-format aliases
+ *  of static machines, or explicit placeholders). Kept in sync with dt_aliases
+ *  from analytics.MACHINE_MAPS. */
+const ALIAS_BLOCKLIST = new Set([
+  'UNKNOWN',
+  // Calender aliases (map to CM01 / CM02)
+  'Calender - 1', 'Calender - I', 'Calender - 2', 'Calender - II',
+  // Lamination aliases (map to IM01-04)
+  'Lam -1', 'LAMINATION - I', 'Lam -2', 'LAMINATION - II',
+  'Lam -3', 'LAMINATION - III', 'Lam -4', 'LAMINATION - IV',
+  // Printing (RP01)
+  'Printing', 'PRINTING',
+  // Blown (BU01 / BM01)
+  'Blown', 'BLOWN',
+]);
+
 export function extendMachineMap(
   w: Warehouse,
   rows: Array<{ machine: string }>,
@@ -241,10 +257,26 @@ export function extendMachineMap(
   for (const r of rows) {
     const code = (r.machine || '').trim();
     if (!code) continue;
+    if (ALIAS_BLOCKLIST.has(code)) continue;   // downtime alias / UNKNOWN — do not auto-register
     if (!w.machine_map[code]) {
       w.machine_map[code] = { name: code, dt_aliases: [code], first_seen: when };
       added.push(code);
     }
   }
   return added;
+}
+
+/** Purge previously-auto-registered entries that match ALIAS_BLOCKLIST.
+ *  Idempotent; call from /api/upload after every ingest so warehouses cleaned
+ *  up over time. Returns list of pathnames removed. */
+export function cleanupMachineMap(w: Warehouse): string[] {
+  if (!w.machine_map) return [];
+  const removed: string[] = [];
+  for (const code of Object.keys(w.machine_map)) {
+    if (ALIAS_BLOCKLIST.has(code)) {
+      delete w.machine_map[code];
+      removed.push(code);
+    }
+  }
+  return removed;
 }

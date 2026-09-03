@@ -14,7 +14,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 import { ingestBuffer } from '$lib/server/ingest';
-import { loadWarehouse, saveWarehouse, mergeInto, toPlant, rawPrefixFor, extendMachineMap } from '$lib/server/warehouse';
+import { loadWarehouse, saveWarehouse, mergeInto, toPlant, rawPrefixFor, extendMachineMap, cleanupMachineMap } from '$lib/server/warehouse';
 import { sweepRawFiles } from '$lib/server/sweep';
 import { withMutex } from '$lib/server/mutex';
 
@@ -79,6 +79,7 @@ async function processCompletedUpload(blobUrl: string, sourceName: string, plant
     }
 
     // Auto-populate machine_map with any new machines seen in this upload.
+    // extendMachineMap already skips known dt_aliases + UNKNOWN.
     const addedMachines: string[] = [];
     if (result.production) addedMachines.push(...extendMachineMap(w, result.production));
     if (result.downtime) addedMachines.push(...extendMachineMap(w, result.downtime));
@@ -92,6 +93,12 @@ async function processCompletedUpload(blobUrl: string, sourceName: string, plant
         skipped: 0,
         at: new Date().toISOString(),
       });
+    }
+    // Purge historical machine_map noise from prior ingests that ran before
+    // the alias filter was added.
+    const purged = cleanupMachineMap(w);
+    if (purged.length) {
+      console.log(`[upload] cleaned up ${purged.length} historical alias entries from machine_map:`, purged);
     }
 
     w.ingest_log.push({

@@ -111,12 +111,15 @@
 
   {#if allowCompare}
     <span class="sep"></span>
+    {@const compareDisabled = from == null || to == null}
     <button
       class="chip compare"
-      class:on={compare}
+      class:on={compare && !compareDisabled}
+      class:disabled={compareDisabled}
+      disabled={compareDisabled}
       on:click={toggleCompare}
       aria-pressed={compare}
-      title="Compare with previous same-length period"
+      title={compareDisabled ? 'Pick a date range first — there is no previous period for All time' : 'Compare with previous same-length period'}
     >
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4-4 4"/><path d="M21 7H9"/><path d="M7 21l-4-4 4-4"/><path d="M3 17h12"/></svg>
       Compare
