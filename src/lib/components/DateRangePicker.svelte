@@ -100,7 +100,11 @@
     if (typeof document !== 'undefined') document.removeEventListener('keydown', onEscape);
   });
 
-  $: current = activePreset();
+  // Svelte only re-runs a reactive statement when it sees tracked dependencies
+  // in its body — a bare `activePreset()` call doesn't reveal that it reads
+  // `from` and `to` internally. Reference them explicitly so the highlight
+  // updates when the parent re-passes new `from`/`to` props.
+  $: current = (from, to, activePreset());
 </script>
 
 <div class="range-bar">

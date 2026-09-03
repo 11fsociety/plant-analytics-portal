@@ -231,24 +231,28 @@
         unit="t"
       />
     </div>
-    <ChartOverlay
-      title="Daily net production"
-      subtitle="Tonnes per day"
-      series={toTonneSeries(data.daily_production_plant)}
-      forecast={[]}
-      anomalies={[]}
-      unit="t"
-      compact
-    />
-    <ChartOverlay
-      title="Daily scrap"
-      subtitle="Tonnes per day"
-      series={toTonneSeries(data.daily_scrap_plant)}
-      forecast={[]}
-      anomalies={[]}
-      unit="t"
-      compact
-    />
+    <div class="analytics-full">
+      <ChartOverlay
+        title="Daily net production"
+        subtitle="Tonnes per day"
+        series={toTonneSeries(data.daily_production_plant)}
+        forecast={[]}
+        anomalies={[]}
+        unit="t"
+        compact
+      />
+    </div>
+    <div class="analytics-full">
+      <ChartOverlay
+        title="Daily scrap"
+        subtitle="Tonnes per day"
+        series={toTonneSeries(data.daily_scrap_plant)}
+        forecast={[]}
+        anomalies={[]}
+        unit="t"
+        compact
+      />
+    </div>
   </div>
 
   <h2>Warehouse</h2>

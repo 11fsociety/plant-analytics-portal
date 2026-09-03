@@ -223,7 +223,7 @@
   }
 </script>
 
-<div class="chart-card">
+<div class="chart-card" class:compact>
   <header>
     <div class="titles">
       <div class="chart-title">{title}</div>

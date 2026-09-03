@@ -139,8 +139,21 @@ export function machines(w: Warehouse, shift: ShiftFilter = 'all', range: DateRa
   const staticMap = MACHINE_MAPS[plant] || {};
   const dynamicMap = w.machine_map || {};
 
-  // Union of static and dynamic codes
-  const allCodes = Array.from(new Set([...Object.keys(staticMap), ...Object.keys(dynamicMap)]));
+  // Build the set of downtime-alias strings that already resolve to a static
+  // machine (e.g. "Calender - I" → CM01). These should NEVER appear as their
+  // own chip — they're aliases, not machines. Same for the UNKNOWN placeholder.
+  const knownAliases = new Set<string>(['UNKNOWN']);
+  for (const meta of Object.values(staticMap)) {
+    for (const alias of meta.dt_aliases) knownAliases.add(alias);
+  }
+
+  // Filter dynamic-map entries that are actually aliases of a static machine.
+  // Preserves genuinely new machines (like PF01 if it were a real code with
+  // no static alias mapping — but if it's an alias, drop it).
+  const filteredDynamicCodes = Object.keys(dynamicMap).filter((code) => !knownAliases.has(code));
+
+  // Union of static and (filtered) dynamic codes
+  const allCodes = Array.from(new Set([...Object.keys(staticMap), ...filteredDynamicCodes]));
 
   return allCodes.map(code => {
     // Prefer static metadata, fallback to dynamic
