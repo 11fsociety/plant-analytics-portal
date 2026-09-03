@@ -5,22 +5,13 @@
   export let availableMonths: string[] = [];
 
   const dispatch = createEventDispatcher<{
-    submit: { months: string[]; metrics: string[] };
+    submit: { months: string[] };
     close: void;
   }>();
 
-  type Metric = { key: string; label: string };
-  const METRICS: Metric[] = [
-    { key: 'net_kg', label: 'Net production' },
-    { key: 'scrap_kg', label: 'Scrap' },
-    { key: 'downtime_hrs', label: 'Downtime' },
-    { key: 'rolls', label: 'Rolls' },
-  ];
-
   let selectedMonths: string[] = [];
-  let selectedMetrics: string[] = [];
 
-  $: canCompare = selectedMonths.length >= 2 && selectedMetrics.length >= 1;
+  $: canCompare = selectedMonths.length >= 2;
 
   function toggleMonth(month: string) {
     if (selectedMonths.includes(month)) {
@@ -30,17 +21,9 @@
     }
   }
 
-  function toggleMetric(key: string) {
-    if (selectedMetrics.includes(key)) {
-      selectedMetrics = selectedMetrics.filter((m) => m !== key);
-    } else {
-      selectedMetrics = [...selectedMetrics, key];
-    }
-  }
-
   function handleSubmit() {
     if (!canCompare) return;
-    dispatch('submit', { months: selectedMonths, metrics: selectedMetrics });
+    dispatch('submit', { months: selectedMonths });
     close();
   }
 
@@ -66,26 +49,10 @@
     <div class="modal" on:click|stopPropagation role="dialog" aria-modal="true">
       <div class="modal-header">
         <h3>Compare months</h3>
-        <p class="subtitle">Pick 2+ months and 1+ metric</p>
+        <p class="subtitle">Pick 2+ months. Chart shows production (bars) + scrap% + downtime% (lines).</p>
       </div>
 
       <div class="modal-body">
-        <div class="section">
-          <h4>Metrics</h4>
-          <div class="checkbox-list">
-            {#each METRICS as metric}
-              <label class="checkbox-item">
-                <input
-                  type="checkbox"
-                  checked={selectedMetrics.includes(metric.key)}
-                  on:change={() => toggleMetric(metric.key)}
-                />
-                <span>{metric.label}</span>
-              </label>
-            {/each}
-          </div>
-        </div>
-
         <div class="section">
           <h4>Months</h4>
           <div class="checkbox-list">
@@ -126,7 +93,7 @@
     border: 1px solid var(--panel-border);
     border-radius: 14px;
     padding: 24px;
-    min-width: 520px;
+    min-width: 380px;
     max-width: 90vw;
     max-height: 85vh;
     overflow-y: auto;
@@ -146,16 +113,6 @@
     font-size: 13px;
     margin: 0;
   }
-  .modal-body {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-  }
-  @media (max-width: 600px) {
-    .modal-body {
-      grid-template-columns: 1fr;
-    }
-  }
   .section h4 {
     color: var(--text);
     font-weight: 600;
@@ -165,9 +122,9 @@
     letter-spacing: 0.3px;
   }
   .checkbox-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 6px;
   }
   .checkbox-item {
     display: flex;

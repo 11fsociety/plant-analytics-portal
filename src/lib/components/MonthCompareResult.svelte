@@ -1,234 +1,183 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
 
-  export let title: string;
-  export let unit: string;
-  export let monthTotals: Array<{ month: string; total: number }> = [];
-  export let monthDaily: Record<string, Array<{ d: number; v: number }>> = {};
-  export let format: ((v: number) => string) | undefined = undefined;
+  /** One row per month in scope. All values are ABSOLUTE (kg / hours);
+   *  percentages are computed inside this component. */
+  export let rows: Array<{
+    month: string;      // "YYYY-MM"
+    net_kg: number;
+    scrap_kg: number;
+    downtime_hrs: number;
+    days_in_month: number;
+  }> = [];
+  export let title = 'Month comparison';
+  export let subtitle: string | undefined = undefined;
 
-  let barContainer: HTMLCanvasElement;
-  let lineContainer: HTMLCanvasElement;
-  let barChart: any = null;
-  let lineChart: any = null;
+  let container: HTMLCanvasElement;
+  let chart: any = null;
   let renderSeq = 0;
 
-  const COLORS = ['#21b573', '#3d7de6', '#ff9500', '#e5484d', '#9068e0', '#22c896', '#60a5fa', '#ffb454'];
-
   async function render() {
-    if (!barContainer || !lineContainer) return;
+    if (!container) return;
     const token = ++renderSeq;
-
     const { Chart, registerables } = await import('chart.js');
     if (token !== renderSeq) return;
     Chart.register(...registerables);
 
-    // Destroy existing charts
-    if (barChart) {
-      barChart.destroy();
-      barChart = null;
-    }
-    if (lineChart) {
-      lineChart.destroy();
-      lineChart = null;
-    }
+    if (chart) { chart.destroy(); chart = null; }
     if (token !== renderSeq) return;
 
-    // Bar chart: month totals
-    barChart = new Chart(barContainer, {
+    // Sort rows by month ascending for deterministic x-axis order.
+    const sorted = rows.slice().sort((a, b) => a.month.localeCompare(b.month));
+    const labels = sorted.map((r) => r.month);
+    const productionTonnes = sorted.map((r) => r.net_kg / 1000);
+    const scrapPct = sorted.map((r) => (r.net_kg > 0 ? (r.scrap_kg / r.net_kg) * 100 : 0));
+    const downtimePct = sorted.map((r) => {
+      const monthHrs = r.days_in_month * 24;
+      return monthHrs > 0 ? (r.downtime_hrs / monthHrs) * 100 : 0;
+    });
+
+    chart = new Chart(container, {
       type: 'bar',
       data: {
-        labels: monthTotals.map((m) => m.month),
+        labels,
         datasets: [
           {
-            label: title,
-            data: monthTotals.map((m) => m.total),
-            backgroundColor: COLORS[0],
-            borderColor: COLORS[0],
+            type: 'bar',
+            label: 'Net production',
+            data: productionTonnes,
+            backgroundColor: 'rgba(33, 181, 115, 0.85)',
+            borderColor: 'rgba(33, 181, 115, 1)',
             borderWidth: 0,
             borderRadius: 6,
+            yAxisID: 'yTonnes',
+            order: 2,
+          },
+          {
+            type: 'line',
+            label: 'Scrap % of net',
+            data: scrapPct,
+            borderColor: 'rgba(255, 200, 0, 1)',
+            backgroundColor: 'rgba(255, 200, 0, 1)',
+            borderDash: [6, 4],
+            borderWidth: 2.5,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            tension: 0,
+            yAxisID: 'yPct',
+            order: 1,
+          },
+          {
+            type: 'line',
+            label: 'Downtime % of month',
+            data: downtimePct,
+            borderColor: 'rgba(229, 72, 77, 1)',
+            backgroundColor: 'rgba(229, 72, 77, 1)',
+            borderDash: [6, 4],
+            borderWidth: 2.5,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            tension: 0,
+            yAxisID: 'yPct',
+            order: 0,
           },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
         plugins: {
-          legend: { display: false },
+          legend: {
+            display: true,
+            labels: { color: '#667085', font: { size: 11 }, usePointStyle: true, boxWidth: 8 },
+          },
           tooltip: {
             callbacks: {
               label: (ctx: any) => {
-                const val = ctx.parsed.y;
-                const formatted = format ? format(val) : `${val.toLocaleString()} ${unit}`;
-                return `${title}: ${formatted}`;
+                const dsLabel = ctx.dataset.label as string;
+                const v = ctx.parsed.y;
+                if (v == null) return '';
+                if (dsLabel === 'Net production') return `${dsLabel}: ${v.toLocaleString(undefined, { maximumFractionDigits: 1 })} t`;
+                return `${dsLabel}: ${v.toFixed(2)}%`;
               },
             },
           },
         },
         scales: {
           x: {
-            grid: { display: false },
+            grid: { color: 'rgba(0,0,0,0.05)' },
             ticks: { color: '#667085', font: { size: 11 } },
           },
-          y: {
-            grid: { color: 'rgba(0,0,0,0.05)' },
-            ticks: { color: '#667085', font: { size: 10 } },
-            beginAtZero: true,
-          },
-        },
-      },
-    });
-
-    // Line chart: day-of-month overlay
-    const months = Object.keys(monthDaily);
-    const datasets = months.map((month, i) => {
-      const dailyData = monthDaily[month] || [];
-      return {
-        label: month,
-        data: dailyData.map((d) => ({ x: d.d, y: d.v })),
-        borderColor: COLORS[i % COLORS.length],
-        backgroundColor: COLORS[i % COLORS.length],
-        borderWidth: 2,
-        pointRadius: 2,
-        pointHoverRadius: 4,
-        tension: 0.3,
-        fill: false,
-      };
-    });
-
-    lineChart = new Chart(lineContainer, {
-      type: 'line',
-      data: { datasets },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
-          tooltip: {
-            callbacks: {
-              title: (items: any) => {
-                if (items.length === 0) return '';
-                return `Day ${items[0].parsed.x}`;
-              },
-              label: (ctx: any) => {
-                const val = ctx.parsed.y;
-                const formatted = format ? format(val) : `${val.toLocaleString()} ${unit}`;
-                return `${ctx.dataset.label}: ${formatted}`;
-              },
-            },
-          },
-        },
-        scales: {
-          x: {
+          yTonnes: {
             type: 'linear',
-            min: 1,
-            max: 31,
-            ticks: { stepSize: 5, color: '#667085', font: { size: 10 } },
+            position: 'left',
             grid: { color: 'rgba(0,0,0,0.05)' },
-            title: { display: true, text: 'Day of month', color: '#667085', font: { size: 11 } },
-          },
-          y: {
-            grid: { color: 'rgba(0,0,0,0.05)' },
-            ticks: { color: '#667085', font: { size: 10 } },
+            ticks: {
+              color: 'rgba(33, 181, 115, 1)',
+              font: { size: 10 },
+              callback: (v: any) => `${v} t`,
+            },
             beginAtZero: true,
+            title: { display: true, text: 'Tonnes', color: 'rgba(33, 181, 115, 1)', font: { size: 11 } },
+          },
+          yPct: {
+            type: 'linear',
+            position: 'right',
+            grid: { display: false },
+            ticks: {
+              color: 'rgba(229, 72, 77, 1)',
+              font: { size: 10 },
+              callback: (v: any) => `${v}%`,
+            },
+            beginAtZero: true,
+            title: { display: true, text: '% (scrap / downtime)', color: 'rgba(229, 72, 77, 1)', font: { size: 11 } },
           },
         },
       },
     });
   }
 
-  $: if (barContainer && lineContainer && (monthTotals || monthDaily)) {
-    render();
-  }
-
-  onDestroy(() => {
-    if (barChart) barChart.destroy();
-    if (lineChart) lineChart.destroy();
-  });
-
-  $: isEmpty = monthTotals.length === 0 || monthTotals.every((m) => m.total === 0);
+  $: if (container && rows) render();
+  onDestroy(() => { if (chart) chart.destroy(); });
 </script>
 
-<div class="result-card">
-  <h3>{title}</h3>
-
-  {#if isEmpty}
-    <div class="empty-message">No data for these months on this metric</div>
-  {:else}
-    <div class="charts-row">
-      <div class="chart-block">
-        <div class="chart-label">Month totals</div>
-        <div class="chart-canvas">
-          <canvas bind:this={barContainer}></canvas>
-        </div>
-      </div>
-
-      <div class="chart-block">
-        <div class="chart-label">Day-of-month overlay</div>
-        <div class="chart-canvas">
-          <canvas bind:this={lineContainer}></canvas>
-        </div>
-      </div>
+<div class="chart-card">
+  <header>
+    <div class="titles">
+      <div class="chart-title">{title}</div>
+      {#if subtitle}<div class="chart-subtitle">{subtitle}</div>{/if}
     </div>
-  {/if}
+  </header>
+  <div class="chart-body">
+    {#if rows.length === 0}
+      <div class="empty">No data for these months</div>
+    {:else}
+      <canvas bind:this={container}></canvas>
+    {/if}
+  </div>
 </div>
 
 <style>
-  .result-card {
+  .chart-card {
     background: var(--panel);
     border: 1px solid var(--panel-border);
+    padding: 22px;
     border-radius: var(--r-card);
-    padding: 20px;
     box-shadow: var(--shadow-sm);
-    transition: box-shadow 0.15s ease-out, transform 0.15s ease-out;
-    margin-bottom: 16px;
-  }
-  .result-card:hover {
-    box-shadow: var(--shadow-md);
-    transform: translateY(-1px);
-  }
-  .result-card h3 {
-    color: var(--highlight);
-    font-size: 14px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    margin: 0 0 16px;
-  }
-  .empty-message {
-    color: var(--muted);
-    font-size: 13px;
-    padding: 20px;
-    text-align: center;
-    background: var(--panel-2);
-    border-radius: 8px;
-  }
-  .charts-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-  }
-  @media (max-width: 900px) {
-    .charts-row {
-      grid-template-columns: 1fr;
-    }
-  }
-  .chart-block {
+    transition: box-shadow 0.15s ease-out;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
+    min-height: 340px;
+    margin-bottom: 24px;
   }
-  .chart-label {
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 500;
-  }
-  .chart-canvas {
-    position: relative;
-    min-height: 200px;
-  }
-  .chart-canvas canvas {
-    width: 100% !important;
-    height: 100% !important;
-  }
+  .chart-card:hover { box-shadow: var(--shadow-md); }
+  header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .titles { min-width: 0; }
+  .chart-title { color: var(--highlight); font-size: 13px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; }
+  .chart-subtitle { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .chart-body { position: relative; flex: 1; min-height: 300px; }
+  .chart-body canvas { width: 100% !important; height: 100% !important; }
+  .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 40px 0; }
 </style>

@@ -20,15 +20,14 @@
   let showFilters = false;
   let fetchSeq = 0;
 
-  // Month comparison state
+  // Month comparison state — new shape: one combined chart with month rows.
   let showCompareModal = false;
-  let compareResults: Array<{
-    metric: string;
-    label: string;
-    unit: string;
-    monthTotals: Array<{ month: string; total: number }>;
-    monthDaily: Record<string, Array<{ d: number; v: number }>>;
-    format?: (v: number) => string;
+  let compareRows: Array<{
+    month: string;
+    net_kg: number;
+    scrap_kg: number;
+    downtime_hrs: number;
+    days_in_month: number;
   }> = [];
   let compareFetchSeq = 0;
 
@@ -123,84 +122,45 @@
     return `${y}-${String(m).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
-  async function handleCompareSubmit(e: CustomEvent<{ months: string[]; metrics: string[] }>) {
-    const { months, metrics } = e.detail;
+  function daysInMonth(yyyyMm: string): number {
+    const [y, m] = yyyyMm.split('-').map(Number);
+    return new Date(y, m, 0).getDate();
+  }
+
+  async function handleCompareSubmit(e: CustomEvent<{ months: string[] }>) {
+    const { months } = e.detail;
     const token = ++compareFetchSeq;
-    compareResults = [];
+    compareRows = [];
 
-    const metricDefs = [
-      { key: 'net_kg', label: 'Net production', unit: 't', format: (v: number) => (v / 1000).toFixed(1) + ' t', field: 'daily_production' },
-      { key: 'scrap_kg', label: 'Scrap', unit: 't', format: (v: number) => (v / 1000).toFixed(1) + ' t', field: 'daily_scrap' },
-      { key: 'downtime_hrs', label: 'Downtime', unit: 'hrs', format: (v: number) => v.toFixed(1) + ' hrs', field: 'daily_downtime' },
-      { key: 'rolls', label: 'Rolls', unit: '', format: (v: number) => v.toFixed(0), field: 'summary' },
-    ];
-
-    const cache = new Map<string, any>();
-
-    for (const metricKey of metrics) {
-      const metricDef = metricDefs.find((m) => m.key === metricKey);
-      if (!metricDef) continue;
-
-      const monthTotals: Array<{ month: string; total: number }> = [];
-      const monthDaily: Record<string, Array<{ d: number; v: number }>> = {};
-
-      for (const month of months) {
-        const cacheKey = `${plantSlug}_${machineCode}_${month}`;
-        let monthData = cache.get(cacheKey);
-
-        if (!monthData) {
-          const from = `${month}-01`;
-          const to = lastDayOfMonth(month);
-          const p = new URLSearchParams({ plant: plantSlug, from, to });
-          try {
-            const res = await fetch(`/api/machine/${machineCode}?${p}`);
-            if (token !== compareFetchSeq) return;
-            if (!res.ok) {
-              if (res.status === 401) { window.location.href = '/login'; return; }
-              console.error(`Failed to fetch ${month}:`, res.status);
-              continue;
-            }
-            monthData = await res.json();
-            if (token !== compareFetchSeq) return;
-            cache.set(cacheKey, monthData);
-          } catch (e) {
-            if (token !== compareFetchSeq) return;
-            console.error(`Error fetching ${month}:`, e);
-            continue;
-          }
+    const rows: typeof compareRows = [];
+    for (const month of months) {
+      const from = `${month}-01`;
+      const to = lastDayOfMonth(month);
+      const p = new URLSearchParams({ plant: plantSlug, from, to });
+      try {
+        const res = await fetch(`/api/machine/${machineCode}?${p}`);
+        if (token !== compareFetchSeq) return;
+        if (!res.ok) {
+          if (res.status === 401) { window.location.href = '/login'; return; }
+          console.error(`compare fetch ${month} failed:`, res.status);
+          continue;
         }
-
-        if (metricKey === 'rolls') {
-          const total = monthData?.summary?.rolls ?? 0;
-          monthTotals.push({ month, total });
-          monthDaily[month] = [];
-        } else {
-          const dailySeries = monthData?.[metricDef.field] || [];
-          const total = dailySeries.reduce((sum: number, p: any) => sum + (p.v || 0), 0);
-          monthTotals.push({ month, total });
-
-          const dailyByDay: Array<{ d: number; v: number }> = [];
-          for (const point of dailySeries) {
-            const day = parseInt(point.d.slice(8, 10), 10);
-            dailyByDay.push({ d: day, v: point.v });
-          }
-          monthDaily[month] = dailyByDay;
-        }
+        const monthData = await res.json();
+        if (token !== compareFetchSeq) return;
+        rows.push({
+          month,
+          net_kg: monthData?.summary?.net_kg ?? 0,
+          scrap_kg: monthData?.summary?.scrap_kg ?? 0,
+          downtime_hrs: monthData?.summary?.downtime_hrs ?? 0,
+          days_in_month: daysInMonth(month),
+        });
+      } catch (err) {
+        if (token !== compareFetchSeq) return;
+        console.error(`compare fetch ${month} err:`, err);
       }
-
-      if (token !== compareFetchSeq) return;
-      compareResults.push({
-        metric: metricKey,
-        label: metricDef.label,
-        unit: metricDef.unit,
-        monthTotals,
-        monthDaily,
-        format: metricDef.format,
-      });
     }
-
     if (token !== compareFetchSeq) return;
-    compareResults = compareResults;
+    compareRows = rows;
   }
 </script>
 
@@ -256,18 +216,14 @@
     </div>
   {/if}
 
-  {#if compareResults.length > 0}
+  {#if compareRows.length > 0}
     <section class="compare-results">
       <h2>Month comparison - {data.name}</h2>
-      {#each compareResults as result}
-        <MonthCompareResult
-          title={result.label}
-          unit={result.unit}
-          monthTotals={result.monthTotals}
-          monthDaily={result.monthDaily}
-          format={result.format}
-        />
-      {/each}
+      <MonthCompareResult
+        title="Production, scrap %, downtime %"
+        subtitle="Bars = tonnes (left axis). Dashed lines = % (right axis)."
+        rows={compareRows}
+      />
     </section>
   {/if}
 
@@ -356,6 +312,7 @@
     data={data.scrap_reasons.slice(0, 8).map(r => ({ label: r.reason || 'Unclassified', value: r.kg / 1000 }))}
     unit="t"
     accent="var(--danger)"
+    compact
   />
 
   {@const xLabels = data.daily_production.map(p => p.d)}
@@ -637,12 +594,18 @@
   .two-col {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 20px;
-    margin-bottom: 24px;
+    gap: 24px;
+    margin-bottom: 28px;
   }
   @media (min-width: 900px) {
     .two-col { grid-template-columns: repeat(2, 1fr); }
   }
+
+  /* Add breathing room between consecutive chart cards + tables so they
+     don't crowd each other. ~24 px = ~0.6 cm on standard screens. */
+  main > :global(.chart-card),
+  :global(.chart-card) + :global(.chart-card) { margin-bottom: 24px; }
+  h2 + :global(.chart-card) { margin-top: 8px; }
 
   .table-wrap {
     margin-bottom: 40px;
