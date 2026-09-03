@@ -1,0 +1,23 @@
+node_modules/
+.svelte-kit/
+build/
+.vercel/
+.env
+.env.*
+!.env.example
+package-lock.json
+*.log
+.DS_Store
+
+# Local dev-only artifacts — not for the deploy
+warehouse-local.json
+warehouse-local.json.gz
+warehouse-local-*.json
+warehouse-local-*.json.gz
+.unlazy-hook-state.json
+GATES.md
+DATERANGEPICKER_INTEGRATION_COMPLETE.md
+
+# Screenshots + Playwright transcripts
+*.png
+.playwright-mcp/
