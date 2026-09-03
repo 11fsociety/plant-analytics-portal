@@ -8,6 +8,8 @@
   import BarChart from '$lib/components/BarChart.svelte';
   import DonutChart from '$lib/components/DonutChart.svelte';
   import HorizontalBar from '$lib/components/HorizontalBar.svelte';
+  import CompareModal from '$lib/components/CompareModal.svelte';
+  import MonthCompareResult from '$lib/components/MonthCompareResult.svelte';
   import { fmt, fmtT, toTonnes } from '$lib/format';
 
   let data: any = null;
@@ -23,6 +25,18 @@
   // Serialise concurrent refresh() calls. Rapid shift toggle (all→A→B) would
   // otherwise let slower requests clobber state after faster later ones.
   let fetchSeq = 0;
+
+  // Month comparison state
+  let showCompareModal = false;
+  let compareResults: Array<{
+    metric: string;
+    label: string;
+    unit: string;
+    monthTotals: Array<{ month: string; total: number }>;
+    monthDaily: Record<string, Array<{ d: number; v: number }>>;
+    format?: (v: number) => string;
+  }> = [];
+  let compareFetchSeq = 0;
 
   $: plantSlug = $page.url.searchParams.get('plant') || 'navratan';
 
@@ -118,6 +132,110 @@
     parts.push(`n=${d.n_points}`);
     return parts.join(' · ');
   }
+
+  function enumerateMonths(min: string | null, max: string | null): string[] {
+    if (!min || !max) return [];
+    // date_range.min/max might be YYYY-MM-DD or YYYY-MM, normalize to YYYY-MM
+    const minMonth = min.slice(0, 7);
+    const maxMonth = max.slice(0, 7);
+    const start = new Date(minMonth + '-01');
+    const end = new Date(maxMonth + '-01');
+    const months: string[] = [];
+    const current = new Date(start);
+    while (current <= end) {
+      const y = current.getFullYear();
+      const m = String(current.getMonth() + 1).padStart(2, '0');
+      months.push(`${y}-${m}`);
+      current.setMonth(current.getMonth() + 1);
+    }
+    return months;
+  }
+
+  function lastDayOfMonth(yyyyMm: string): string {
+    const [y, m] = yyyyMm.split('-').map(Number);
+    const d = new Date(y, m, 0);
+    return `${y}-${String(m).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  async function handleCompareSubmit(e: CustomEvent<{ months: string[]; metrics: string[] }>) {
+    const { months, metrics } = e.detail;
+    const token = ++compareFetchSeq;
+    compareResults = [];
+
+    const metricDefs = [
+      { key: 'net_kg', label: 'Net production', unit: 't', format: (v: number) => (v / 1000).toFixed(1) + ' t', field: 'daily_production_plant' },
+      { key: 'scrap_kg', label: 'Scrap', unit: 't', format: (v: number) => (v / 1000).toFixed(1) + ' t', field: 'daily_scrap_plant' },
+      { key: 'downtime_hrs', label: 'Downtime', unit: 'hrs', format: (v: number) => v.toFixed(1) + ' hrs', field: 'daily_downtime_plant' },
+      { key: 'rolls', label: 'Rolls', unit: '', format: (v: number) => v.toFixed(0), field: 'plant' },
+    ];
+
+    const cache = new Map<string, any>();
+
+    for (const metricKey of metrics) {
+      const metricDef = metricDefs.find((m) => m.key === metricKey);
+      if (!metricDef) continue;
+
+      const monthTotals: Array<{ month: string; total: number }> = [];
+      const monthDaily: Record<string, Array<{ d: number; v: number }>> = {};
+
+      for (const month of months) {
+        const cacheKey = `${plantSlug}_${month}`;
+        let monthData = cache.get(cacheKey);
+
+        if (!monthData) {
+          const from = `${month}-01`;
+          const to = lastDayOfMonth(month);
+          const p = new URLSearchParams({ plant: plantSlug, from, to });
+          try {
+            const res = await fetch(`/api/data?${p}`);
+            if (token !== compareFetchSeq) return;
+            if (!res.ok) {
+              if (res.status === 401) { window.location.href = '/login'; return; }
+              console.error(`Failed to fetch ${month}:`, res.status);
+              continue;
+            }
+            monthData = await res.json();
+            if (token !== compareFetchSeq) return;
+            cache.set(cacheKey, monthData);
+          } catch (e) {
+            if (token !== compareFetchSeq) return;
+            console.error(`Error fetching ${month}:`, e);
+            continue;
+          }
+        }
+
+        if (metricKey === 'rolls') {
+          const total = monthData?.plant?.rolls ?? 0;
+          monthTotals.push({ month, total });
+          monthDaily[month] = [];
+        } else {
+          const dailySeries = monthData?.[metricDef.field] || [];
+          const total = dailySeries.reduce((sum: number, p: any) => sum + (p.v || 0), 0);
+          monthTotals.push({ month, total });
+
+          const dailyByDay: Array<{ d: number; v: number }> = [];
+          for (const point of dailySeries) {
+            const day = parseInt(point.d.slice(8, 10), 10);
+            dailyByDay.push({ d: day, v: point.v });
+          }
+          monthDaily[month] = dailyByDay;
+        }
+      }
+
+      if (token !== compareFetchSeq) return;
+      compareResults.push({
+        metric: metricKey,
+        label: metricDef.label,
+        unit: metricDef.unit,
+        monthTotals,
+        monthDaily,
+        format: metricDef.format,
+      });
+    }
+
+    if (token !== compareFetchSeq) return;
+    compareResults = compareResults;
+  }
 </script>
 
 <svelte:head>
@@ -127,7 +245,8 @@
 <h1>Dashboard</h1>
 <p class="page-subtitle">Ops overview of production, downtime and scrap</p>
 
-<button class="filters-toggle" on:click={() => (showFilters = !showFilters)}>
+<div class="action-bar">
+  <button class="filters-toggle" on:click={() => (showFilters = !showFilters)}>
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <line x1="4" y1="21" x2="4" y2="14"></line>
     <line x1="4" y1="10" x2="4" y2="3"></line>
@@ -141,6 +260,23 @@
   </svg>
   Filters
 </button>
+
+  {#if data && data.plant && data.date_range}
+    {@const availableMonths = enumerateMonths(data.date_range.min, data.date_range.max)}
+    {#if availableMonths.length >= 2}
+    <button class="btn secondary compare-btn" on:click={() => (showCompareModal = true)}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+      Compare months
+    </button>
+    <CompareModal
+      open={showCompareModal}
+      availableMonths={availableMonths}
+      on:submit={handleCompareSubmit}
+      on:close={() => (showCompareModal = false)}
+    />
+    {/if}
+  {/if}
+</div>
 
 {#if showFilters}
   <DateRangePicker from={dateFrom} to={dateTo} compare={compareMode} allowCompare={true} on:change={handleDateChange} />
@@ -162,6 +298,22 @@
   </div>
 {:else}
   {@const plant = data.plant}
+
+  {#if compareResults.length > 0}
+    <section class="compare-results">
+      <h2>Month comparison - Plant-wide</h2>
+      {#each compareResults as result}
+        <MonthCompareResult
+          title={result.label}
+          unit={result.unit}
+          monthTotals={result.monthTotals}
+          monthDaily={result.monthDaily}
+          format={result.format}
+        />
+      {/each}
+    </section>
+  {/if}
+
   <div class="kpi-grid">
     <KpiCard label="Net production" value={fmtT(plant.net_kg)} sub={`${plant.rolls?.toLocaleString()} rolls`} tone="success" icon="cube" />
     <KpiCard label="Gross production" value={fmtT(plant.gross_kg)} tone="info" icon="scale" />
@@ -266,12 +418,18 @@
 {/if}
 
 <style>
+  .action-bar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin: 10px 0 12px;
+    flex-wrap: wrap;
+  }
   .filters-toggle {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     padding: 8px 14px;
-    margin: 10px 0 12px;
     background: var(--panel);
     border: 1px solid var(--panel-border);
     border-radius: 8px;
@@ -289,6 +447,25 @@
     width: 14px;
     height: 14px;
     opacity: 0.7;
+  }
+  .compare-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+  }
+  .compare-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+  .compare-results {
+    margin-bottom: 32px;
+  }
+  .compare-results h2 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--highlight);
+    margin: 0 0 16px;
   }
   .chip-row { display: flex; gap: 8px; margin: 6px 0 18px; flex-wrap: wrap; }
   .warehouse-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }

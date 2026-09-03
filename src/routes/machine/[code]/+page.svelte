@@ -5,7 +5,11 @@
   import KpiCard from '$lib/components/KpiCard.svelte';
   import ChartOverlay from '$lib/components/ChartOverlay.svelte';
   import HorizontalBar from '$lib/components/HorizontalBar.svelte';
+  import BarChart from '$lib/components/BarChart.svelte';
+  import DualAxisChart from '$lib/components/DualAxisChart.svelte';
   import DateRangePicker from '$lib/components/DateRangePicker.svelte';
+  import CompareModal from '$lib/components/CompareModal.svelte';
+  import MonthCompareResult from '$lib/components/MonthCompareResult.svelte';
   import { fmt, fmtT, toTonnes } from '$lib/format';
 
   let data: any = null;
@@ -13,7 +17,20 @@
   let dateFrom: string | null = null;
   let dateTo: string | null = null;
   let compareMode = false;
+  let showFilters = false;
   let fetchSeq = 0;
+
+  // Month comparison state
+  let showCompareModal = false;
+  let compareResults: Array<{
+    metric: string;
+    label: string;
+    unit: string;
+    monthTotals: Array<{ month: string; total: number }>;
+    monthDaily: Record<string, Array<{ d: number; v: number }>>;
+    format?: (v: number) => string;
+  }> = [];
+  let compareFetchSeq = 0;
 
   $: plantSlug = $page.url.searchParams.get('plant') || 'navratan';
   $: machineCode = $page.params.code;
@@ -90,6 +107,101 @@
   function toTonneAnoms(a: Array<{ d: string; v: number; z: number }>) {
     return a.map((p) => ({ d: p.d, v: (toTonnes(p.v) ?? 0), z: p.z }));
   }
+
+  function enumerateMonths(dailyData: Array<{ d: string; v: number }>): string[] {
+    const months = new Set<string>();
+    for (const point of dailyData) {
+      const month = point.d.slice(0, 7);
+      months.add(month);
+    }
+    return Array.from(months).sort();
+  }
+
+  function lastDayOfMonth(yyyyMm: string): string {
+    const [y, m] = yyyyMm.split('-').map(Number);
+    const d = new Date(y, m, 0);
+    return `${y}-${String(m).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  async function handleCompareSubmit(e: CustomEvent<{ months: string[]; metrics: string[] }>) {
+    const { months, metrics } = e.detail;
+    const token = ++compareFetchSeq;
+    compareResults = [];
+
+    const metricDefs = [
+      { key: 'net_kg', label: 'Net production', unit: 't', format: (v: number) => (v / 1000).toFixed(1) + ' t', field: 'daily_production' },
+      { key: 'scrap_kg', label: 'Scrap', unit: 't', format: (v: number) => (v / 1000).toFixed(1) + ' t', field: 'daily_scrap' },
+      { key: 'downtime_hrs', label: 'Downtime', unit: 'hrs', format: (v: number) => v.toFixed(1) + ' hrs', field: 'daily_downtime' },
+      { key: 'rolls', label: 'Rolls', unit: '', format: (v: number) => v.toFixed(0), field: 'summary' },
+    ];
+
+    const cache = new Map<string, any>();
+
+    for (const metricKey of metrics) {
+      const metricDef = metricDefs.find((m) => m.key === metricKey);
+      if (!metricDef) continue;
+
+      const monthTotals: Array<{ month: string; total: number }> = [];
+      const monthDaily: Record<string, Array<{ d: number; v: number }>> = {};
+
+      for (const month of months) {
+        const cacheKey = `${plantSlug}_${machineCode}_${month}`;
+        let monthData = cache.get(cacheKey);
+
+        if (!monthData) {
+          const from = `${month}-01`;
+          const to = lastDayOfMonth(month);
+          const p = new URLSearchParams({ plant: plantSlug, from, to });
+          try {
+            const res = await fetch(`/api/machine/${machineCode}?${p}`);
+            if (token !== compareFetchSeq) return;
+            if (!res.ok) {
+              if (res.status === 401) { window.location.href = '/login'; return; }
+              console.error(`Failed to fetch ${month}:`, res.status);
+              continue;
+            }
+            monthData = await res.json();
+            if (token !== compareFetchSeq) return;
+            cache.set(cacheKey, monthData);
+          } catch (e) {
+            if (token !== compareFetchSeq) return;
+            console.error(`Error fetching ${month}:`, e);
+            continue;
+          }
+        }
+
+        if (metricKey === 'rolls') {
+          const total = monthData?.summary?.rolls ?? 0;
+          monthTotals.push({ month, total });
+          monthDaily[month] = [];
+        } else {
+          const dailySeries = monthData?.[metricDef.field] || [];
+          const total = dailySeries.reduce((sum: number, p: any) => sum + (p.v || 0), 0);
+          monthTotals.push({ month, total });
+
+          const dailyByDay: Array<{ d: number; v: number }> = [];
+          for (const point of dailySeries) {
+            const day = parseInt(point.d.slice(8, 10), 10);
+            dailyByDay.push({ d: day, v: point.v });
+          }
+          monthDaily[month] = dailyByDay;
+        }
+      }
+
+      if (token !== compareFetchSeq) return;
+      compareResults.push({
+        metric: metricKey,
+        label: metricDef.label,
+        unit: metricDef.unit,
+        monthTotals,
+        monthDaily,
+        format: metricDef.format,
+      });
+    }
+
+    if (token !== compareFetchSeq) return;
+    compareResults = compareResults;
+  }
 </script>
 
 <svelte:head>
@@ -115,96 +227,317 @@
 
   <h1>{data.name}</h1>
 
-  <DateRangePicker from={dateFrom} to={dateTo} compare={compareMode} allowCompare={true} on:change={handleDateChange} />
+  <div class="action-bar">
+    <button class="btn secondary filters-toggle" on:click={() => (showFilters = !showFilters)}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+      Filters {showFilters ? '▲' : '▼'}
+    </button>
 
-  <div class="kpi-grid">
-    <KpiCard label="Rolls" value={fmt(data.summary.rolls)} icon="cube" tone="info" />
-    <KpiCard label="Net production" value={fmtT(data.summary.net_kg)} icon="scale" tone="success" />
-    <KpiCard label="Scrap" value={fmtT(data.summary.scrap_kg)} icon="trash" tone="danger" />
-    <KpiCard label="Scrap %" value={data.summary.scrap_pct_of_net.toFixed(1) + '%'} icon="ratio" tone="warn" />
-    <KpiCard label="Downtime" value={data.summary.downtime_hrs.toFixed(1) + ' hrs'} icon="clock" tone="warn" />
-    <KpiCard label="Throughput" value={fmt(data.summary.throughput_kg_per_productive_hr) + ' kg/hr'} icon="chart" tone="purple" />
+    {#if data.production_insights?.series}
+      {@const availableMonths = enumerateMonths(data.production_insights.series)}
+      {#if availableMonths.length >= 2}
+      <button class="btn secondary compare-btn" on:click={() => (showCompareModal = true)}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+        Compare months
+      </button>
+      <CompareModal
+        open={showCompareModal}
+        availableMonths={availableMonths}
+        on:submit={handleCompareSubmit}
+        on:close={() => (showCompareModal = false)}
+      />
+      {/if}
+    {/if}
   </div>
 
-  <section class="shift-section">
-    <h2>Shift breakdown</h2>
-    <div class="shift-grid">
-      <div class="shift-card">
-        <div class="shift-header">Shift A</div>
-        <div class="shift-stats">
-          <div class="stat"><span class="label">Rolls:</span> {fmt(data.shift_split.A.rolls)}</div>
-          <div class="stat"><span class="label">Net:</span> {fmtT(data.shift_split.A.net_kg)}</div>
-          <div class="stat"><span class="label">Scrap:</span> {fmtT(data.shift_split.A.scrap_kg)}</div>
-          <div class="stat"><span class="label">Downtime:</span> {data.shift_split.A.downtime_hrs.toFixed(1)} hrs</div>
-        </div>
-      </div>
-      <div class="shift-card">
-        <div class="shift-header">Shift B</div>
-        <div class="shift-stats">
-          <div class="stat"><span class="label">Rolls:</span> {fmt(data.shift_split.B.rolls)}</div>
-          <div class="stat"><span class="label">Net:</span> {fmtT(data.shift_split.B.net_kg)}</div>
-          <div class="stat"><span class="label">Scrap:</span> {fmtT(data.shift_split.B.scrap_kg)}</div>
-          <div class="stat"><span class="label">Downtime:</span> {data.shift_split.B.downtime_hrs.toFixed(1)} hrs</div>
-        </div>
-      </div>
+  {#if showFilters}
+    <div class="filters-panel">
+      <DateRangePicker from={dateFrom} to={dateTo} compare={compareMode} allowCompare={true} on:change={handleDateChange} />
     </div>
-  </section>
+  {/if}
 
-  <section class="charts-section">
-    <h2>Trends & forecasts</h2>
-    <div class="charts-grid">
-      <ChartOverlay
-        title="Daily production"
-        subtitle="Net production, tonnes"
-        series={toTonneSeries(data.production_insights.series)}
-        forecast={toTonneForecast(data.production_insights.forecast)}
-        anomalies={toTonneAnoms(data.production_insights.anomalies)}
-        unit="t"
-        compact={true}
-        compareSeries={data.daily_production_compare ? toTonneSeries(data.daily_production_compare) : null}
-      />
-      <ChartOverlay
-        title="Daily scrap"
-        subtitle="Rejected material, tonnes"
-        series={toTonneSeries(data.scrap_insights.series)}
-        forecast={toTonneForecast(data.scrap_insights.forecast)}
-        anomalies={toTonneAnoms(data.scrap_insights.anomalies)}
-        unit="t"
-        compact={true}
-        compareSeries={data.daily_scrap_compare ? toTonneSeries(data.daily_scrap_compare) : null}
-      />
-      <ChartOverlay
-        title="Daily downtime"
-        subtitle="Hours offline"
-        series={data.downtime_insights.series}
-        forecast={data.downtime_insights.forecast}
-        anomalies={data.downtime_insights.anomalies}
-        unit="hrs"
-        compact={true}
-        compareSeries={data.daily_downtime_compare || null}
-      />
-    </div>
-  </section>
+  {#if compareResults.length > 0}
+    <section class="compare-results">
+      <h2>Month comparison - {data.name}</h2>
+      {#each compareResults as result}
+        <MonthCompareResult
+          title={result.label}
+          unit={result.unit}
+          monthTotals={result.monthTotals}
+          monthDaily={result.monthDaily}
+          format={result.format}
+        />
+      {/each}
+    </section>
+  {/if}
 
-  <section class="bars-section">
-    <h2>Top contributors</h2>
-    <div class="bars-grid">
-      <HorizontalBar
-        title="Downtime reasons"
-        subtitle="Top causes, hours"
-        data={data.downtime_by_hours.slice(0, 8).map(r => ({ label: r.reason, value: r.hrs }))}
-        unit="hrs"
-        accent="var(--warn)"
-      />
-      <HorizontalBar
-        title="Scrap reasons"
-        subtitle="Top defects, tonnes"
-        data={data.scrap_reasons.slice(0, 8).map(r => ({ label: r.reason, value: r.kg / 1000 }))}
-        unit="t"
-        accent="var(--danger)"
-      />
+  <div class="kpi-grid">
+    <KpiCard
+      label="Net production"
+      value={fmtT(data.summary.net_kg)}
+      sub={`${fmt(data.summary.rolls)} rolls`}
+      tone="success"
+      icon="cube"
+    />
+    <KpiCard
+      label="Square metres"
+      value={fmt(data.summary.sqm)}
+      tone="purple"
+      icon="chart"
+    />
+    <KpiCard
+      label="Downtime"
+      value={`${data.summary.downtime_hrs.toFixed(0)} hrs`}
+      sub={`${((data.summary.downtime_hrs / 744) * 100).toFixed(1)}% of month`}
+      tone="warn"
+      icon="clock"
+    />
+    <KpiCard
+      label="Scrap"
+      value={fmtT(data.summary.scrap_kg)}
+      sub={data.summary.scrap_pct_of_net != null ? `${data.summary.scrap_pct_of_net.toFixed(1)}% of net` : undefined}
+      tone="danger"
+      icon="trash"
+    />
+    <KpiCard
+      label="Days active"
+      value={fmt(data.summary.days_active)}
+      tone="info"
+      icon="chart"
+    />
+    <KpiCard
+      label="Throughput"
+      value={data.summary.throughput_kg_per_productive_hr != null ? (data.summary.throughput_kg_per_productive_hr / 1000).toFixed(2) + ' t/hr' : '-'}
+      sub="kg per productive hr"
+      tone="success"
+      icon="chart"
+    />
+    <KpiCard
+      label="Speed"
+      value={data.summary.speed_metres_per_min != null ? data.summary.speed_metres_per_min.toFixed(2) + ' m/min' : '-'}
+      sub={data.summary.total_length_m ? `${(data.summary.total_length_m / 1e6).toFixed(2)}M m run` : undefined}
+      tone="info"
+      icon="chart"
+    />
+    <KpiCard
+      label="Distinct orders"
+      value={fmt(data.summary.distinct_orders)}
+      sub="unique jobs run"
+      tone="purple"
+      icon="cube"
+    />
+    <KpiCard
+      label="Job changes"
+      value={fmt(data.summary.job_changes)}
+      sub="sequential order switches"
+      tone="warn"
+      icon="ratio"
+    />
+  </div>
+
+  <h2>Downtime analysis</h2>
+  <div class="two-col">
+    <BarChart
+      title="Downtime by reason (by hours)"
+      data={data.downtime_by_hours.slice(0, 8).map(r => ({ label: r.reason || 'Unclassified', value: r.hrs }))}
+      unit="hrs"
+    />
+    <BarChart
+      title="Downtime by reason (by event count)"
+      data={data.downtime_by_events.slice(0, 8).map(r => ({ label: r.reason || 'Unclassified', value: r.events }))}
+      unit="events"
+    />
+  </div>
+
+  <h2>Scrap categories</h2>
+  <HorizontalBar
+    title="Top scrap reasons"
+    subtitle="Defects by weight, tonnes"
+    data={data.scrap_reasons.slice(0, 8).map(r => ({ label: r.reason || 'Unclassified', value: r.kg / 1000 }))}
+    unit="t"
+    accent="var(--danger)"
+  />
+
+  {@const xLabels = data.daily_production.map(p => p.d)}
+  {@const seriesA = data.daily_production.map(p => p.v / 1000)}
+  {@const downtimeMap = new Map(data.daily_downtime.map(d => [d.d, d.v]))}
+  {@const seriesB = xLabels.map(d => downtimeMap.get(d) || 0)}
+  <DualAxisChart
+    title="Daily production + Downtime"
+    xLabels={xLabels}
+    seriesA={seriesA}
+    seriesA_label="Production"
+    seriesA_unit="t"
+    seriesB={seriesB}
+    seriesB_label="Downtime"
+    seriesB_unit="hrs"
+  />
+
+  <ChartOverlay
+    title="Daily scrap with forecast"
+    subtitle="Rejected material, tonnes"
+    series={toTonneSeries(data.scrap_insights.series)}
+    forecast={toTonneForecast(data.scrap_insights.forecast)}
+    anomalies={toTonneAnoms(data.scrap_insights.anomalies)}
+    unit="t"
+    compact={true}
+    compareSeries={data.daily_scrap_compare ? toTonneSeries(data.daily_scrap_compare) : null}
+  />
+
+  <h2>Shift split</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Shift</th>
+          <th class="num">Rolls</th>
+          <th class="num">Net (t)</th>
+          <th class="num">Scrap (t)</th>
+          <th class="num">Downtime (hrs)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>A (Day)</td>
+          <td class="num">{fmt(data.shift_split.A.rolls)}</td>
+          <td class="num">{fmtT(data.shift_split.A.net_kg)}</td>
+          <td class="num">{fmtT(data.shift_split.A.scrap_kg)}</td>
+          <td class="num">{data.shift_split.A.downtime_hrs.toFixed(1)}</td>
+        </tr>
+        <tr>
+          <td>B (Night)</td>
+          <td class="num">{fmt(data.shift_split.B.rolls)}</td>
+          <td class="num">{fmtT(data.shift_split.B.net_kg)}</td>
+          <td class="num">{fmtT(data.shift_split.B.scrap_kg)}</td>
+          <td class="num">{data.shift_split.B.downtime_hrs.toFixed(1)}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  {#if data.breakdowns && Object.keys(data.breakdowns).length > 0}
+    <h2>Product breakdowns</h2>
+    <div class="two-col">
+      {#if data.breakdowns.by_group}
+        <BarChart
+          title="Production by group"
+          data={data.breakdowns.by_group.slice(0, 15).map(r => ({ label: r.key, value: r.kg / 1000 }))}
+          unit="t"
+        />
+      {/if}
+      {#if data.breakdowns.by_quality}
+        <BarChart
+          title="Production by quality"
+          data={data.breakdowns.by_quality.slice(0, 15).map(r => ({ label: r.key, value: r.kg / 1000 }))}
+          unit="t"
+        />
+      {/if}
+      {#if data.breakdowns.by_grade}
+        <BarChart
+          title="Production by grade"
+          data={data.breakdowns.by_grade.slice(0, 15).map(r => ({ label: r.key, value: r.kg / 1000 }))}
+          unit="t"
+        />
+      {/if}
+      {#if data.breakdowns.by_packtype}
+        <BarChart
+          title="Production by pack type"
+          data={data.breakdowns.by_packtype.slice(0, 15).map(r => ({ label: r.key, value: r.kg / 1000 }))}
+          unit="t"
+        />
+      {/if}
+      {#if data.breakdowns.by_gsm_micron}
+        <BarChart
+          title="Production by GSM/Micron"
+          data={data.breakdowns.by_gsm_micron.slice(0, 15).map(r => ({ label: r.key, value: r.kg / 1000 }))}
+          unit="t"
+        />
+      {/if}
+      {#if data.breakdowns.by_actual_gsm}
+        <BarChart
+          title="Production by actual GSM"
+          data={data.breakdowns.by_actual_gsm.slice(0, 15).map(r => ({ label: r.key, value: r.kg / 1000 }))}
+          unit="t"
+        />
+      {/if}
+      {#if data.breakdowns.by_microns}
+        <BarChart
+          title="Production by microns"
+          data={data.breakdowns.by_microns.slice(0, 15).map(r => ({ label: String(r.key), value: r.kg / 1000 }))}
+          unit="t"
+        />
+      {/if}
+      {#if data.breakdowns.by_thickness}
+        <BarChart
+          title="Production by thickness"
+          data={data.breakdowns.by_thickness.slice(0, 15).map(r => ({ label: String(r.key), value: r.kg / 1000 }))}
+          unit="t"
+        />
+      {/if}
+      {#if data.breakdowns.by_operator}
+        <BarChart
+          title="Production by operator"
+          data={data.breakdowns.by_operator.slice(0, 20).map(r => ({ label: r.key, value: r.kg / 1000 }))}
+          unit="t"
+        />
+      {/if}
+      {#if data.breakdowns.by_width}
+        <BarChart
+          title="Production by width of roll (m)"
+          data={data.breakdowns.by_width.slice(0, 15).map(r => ({ label: String(r.key), value: r.kg / 1000 }))}
+          unit="t"
+        />
+      {/if}
     </div>
-  </section>
+  {/if}
+
+  {#if data.top_materials?.length}
+    <h2>Top materials produced</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Material</th>
+            <th class="num">Tonnes</th>
+            <th class="num">Rolls</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each data.top_materials.slice(0, 15) as m}
+            <tr>
+              <td>{m.mat}</td>
+              <td class="num">{fmtT(m.kg)}</td>
+              <td class="num">{fmt(m.rolls)}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {/if}
+
+  {#if data.scrap_insights?.anomalies?.length}
+    <h2>Anomalies (MAD z-score &gt; 3.5)</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th class="num">Scrap</th>
+            <th class="num">Z-score</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each data.scrap_insights.anomalies as a}
+            <tr>
+              <td>{a.d}</td>
+              <td class="num">{fmtT(a.v)}</td>
+              <td class="num"><span class="z-pill">{a.z.toFixed(2)}</span></td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {/if}
 
   <section class="insights-section">
     <h2>Insights</h2>
@@ -238,6 +571,37 @@
 {/if}
 
 <style>
+  .action-bar {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .filters-toggle,
+  .compare-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+  }
+  .filters-toggle svg,
+  .compare-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+  .filters-panel {
+    margin-bottom: 20px;
+  }
+  .compare-results {
+    margin-bottom: 32px;
+  }
+  .compare-results h2 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--highlight);
+    margin: 0 0 16px;
+  }
   .breadcrumb {
     display: flex;
     align-items: center;
@@ -270,60 +634,63 @@
     margin-bottom: 40px;
   }
 
-  .shift-section { margin-bottom: 40px; }
-  .shift-grid {
+  .two-col {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
+    grid-template-columns: 1fr;
+    gap: 20px;
+    margin-bottom: 24px;
   }
-  .shift-card {
+  @media (min-width: 900px) {
+    .two-col { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  .table-wrap {
+    margin-bottom: 40px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
     background: var(--panel);
     border: 1px solid var(--panel-border);
     border-radius: 14px;
-    padding: 20px;
-    box-shadow: var(--shadow-sm);
+    overflow: hidden;
   }
-  .shift-header {
-    font-size: 14px;
+  thead {
+    background: var(--panel-2);
+  }
+  th {
+    padding: 12px 16px;
+    text-align: left;
+    font-size: 13px;
     font-weight: 600;
-    color: var(--accent);
-    margin-bottom: 12px;
+    color: var(--highlight);
     text-transform: uppercase;
     letter-spacing: 0.4px;
+    border-bottom: 1px solid var(--panel-border);
   }
-  .shift-stats {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+  th.num {
+    text-align: right;
   }
-  .stat {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  td {
+    padding: 10px 16px;
     font-size: 14px;
     color: var(--text);
+    border-bottom: 1px solid var(--panel-border);
   }
-  .stat .label {
-    color: var(--muted);
-    font-weight: 500;
-    min-width: 70px;
+  tbody tr:last-child td {
+    border-bottom: none;
   }
-
-  .charts-section { margin-bottom: 40px; }
-  .charts-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 20px;
+  td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
   }
-
-  .bars-section { margin-bottom: 40px; }
-  .bars-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-  @media (min-width: 900px) {
-    .bars-grid { grid-template-columns: 1fr 1fr; }
+  .z-pill {
+    background: var(--danger-bg);
+    color: var(--danger);
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 12px;
   }
 
   .insights-section { margin-bottom: 40px; }

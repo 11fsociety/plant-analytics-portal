@@ -69,7 +69,7 @@
       backgroundColor: 'rgba(33, 181, 115, 0.08)',
       borderWidth: 2,
       pointRadius: 0,
-      tension: 0.25,
+      tension: 0,
       fill: false,
       spanGaps: false,
     };
@@ -81,7 +81,7 @@
       borderDash: [6, 4],
       borderWidth: 2,
       pointRadius: 0,
-      tension: 0.25,
+      tension: 0,
       fill: false,
       hidden: !showOverlays,
     };
@@ -129,7 +129,7 @@
           borderDash: [2, 2],
           borderWidth: 2,
           pointRadius: 0,
-          tension: 0.25,
+          tension: 0,
           fill: false,
           hidden: !showOverlays,
         }

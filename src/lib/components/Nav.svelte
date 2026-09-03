@@ -69,6 +69,7 @@
   const links = [
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/predict', label: 'Predict' },
+    { href: '/preset', label: 'Preset' },
     { href: '/upload', label: 'Upload' },
   ];
 

@@ -10,10 +10,21 @@
     change: { from: string | null; to: string | null; compare: boolean; preset: string };
   }>();
 
-  type Preset = { key: string; label: string; days: number | null };
+  type Preset = {
+    key: string;
+    label: string;
+    days: number | null | 'today' | 'yesterday' | 'day-before' | 'this-week' | 'last-week' | 'this-month' | 'last-month';
+  };
   const PRESETS: Preset[] = [
+    { key: 'today', label: 'Today', days: 'today' },
+    { key: 'yesterday', label: 'Yesterday', days: 'yesterday' },
+    { key: 'day-before', label: 'Day before', days: 'day-before' },
     { key: '7', label: 'Last 7 days', days: 7 },
     { key: '30', label: 'Last 30 days', days: 30 },
+    { key: 'this-week', label: 'This week', days: 'this-week' },
+    { key: 'last-week', label: 'Last week', days: 'last-week' },
+    { key: 'this-month', label: 'This month', days: 'this-month' },
+    { key: 'last-month', label: 'Last month', days: 'last-month' },
     { key: '90', label: 'Last 3 months', days: 90 },
     { key: '180', label: 'Last 6 months', days: 180 },
     { key: 'all', label: 'All time', days: null },
@@ -30,13 +41,64 @@
     return `${y}-${m}-${day}`;
   }
 
-  function computeRange(days: number | null): { from: string | null; to: string | null } {
+  function computeRange(days: number | null | string): { from: string | null; to: string | null } {
     if (days == null) return { from: null, to: null };
     if (typeof window === 'undefined') return { from: null, to: null };
+
     const today = new Date();
-    const start = new Date(today);
-    start.setDate(start.getDate() - (days - 1));
-    return { from: iso(start), to: iso(today) };
+
+    // Handle numeric days (existing behavior)
+    if (typeof days === 'number') {
+      const start = new Date(today);
+      start.setDate(start.getDate() - (days - 1));
+      return { from: iso(start), to: iso(today) };
+    }
+
+    // Handle string discriminators
+    switch (days) {
+      case 'today': {
+        return { from: iso(today), to: iso(today) };
+      }
+      case 'yesterday': {
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        return { from: iso(yesterday), to: iso(yesterday) };
+      }
+      case 'day-before': {
+        const dayBefore = new Date(today);
+        dayBefore.setDate(dayBefore.getDate() - 2);
+        return { from: iso(dayBefore), to: iso(dayBefore) };
+      }
+      case 'this-week': {
+        const day = today.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+        const daysToMonday = (day + 6) % 7; // Monday = 0 days back, Tuesday = 1 day back, ..., Sunday = 6 days back
+        const monday = new Date(today);
+        monday.setDate(monday.getDate() - daysToMonday);
+        return { from: iso(monday), to: iso(today) };
+      }
+      case 'last-week': {
+        const day = today.getDay();
+        const daysToMonday = (day + 6) % 7;
+        const thisMonday = new Date(today);
+        thisMonday.setDate(thisMonday.getDate() - daysToMonday);
+        const lastMonday = new Date(thisMonday);
+        lastMonday.setDate(lastMonday.getDate() - 7);
+        const lastSunday = new Date(lastMonday);
+        lastSunday.setDate(lastSunday.getDate() + 6);
+        return { from: iso(lastMonday), to: iso(lastSunday) };
+      }
+      case 'this-month': {
+        const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        return { from: iso(firstOfMonth), to: iso(today) };
+      }
+      case 'last-month': {
+        const firstOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const lastOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0); // Day 0 = last day of previous month
+        return { from: iso(firstOfLastMonth), to: iso(lastOfLastMonth) };
+      }
+      default:
+        return { from: null, to: null };
+    }
   }
 
   function dateMatch(a: string | null, b: string | null): boolean {
@@ -131,6 +193,16 @@
   {/if}
 </div>
 
+<!-- Resolved-range readout: shows what actual dates are currently in scope. -->
+<div class="range-readout">
+  {#if from == null && to == null}
+    <span class="range-label">Range:</span> <span class="range-value">All time</span>
+  {:else}
+    <span class="range-label">Range:</span>
+    <span class="range-value">{from ?? '—'} <span class="range-arrow">→</span> {to ?? '—'}</span>
+  {/if}
+</div>
+
 {#if showCustom}
   <div class="custom-backdrop" on:click={cancelCustom} role="presentation">
     <div class="custom-popover" on:click|stopPropagation role="dialog" aria-modal="true">
@@ -151,8 +223,18 @@
     gap: 6px;
     align-items: center;
     flex-wrap: wrap;
-    margin: 8px 0 20px;
+    margin: 8px 0 8px;
   }
+  .range-readout {
+    color: var(--muted);
+    font-size: 11px;
+    margin: 0 0 20px;
+    padding-left: 2px;
+    letter-spacing: 0.2px;
+  }
+  .range-readout .range-label { text-transform: uppercase; letter-spacing: 0.4px; margin-right: 4px; }
+  .range-readout .range-value { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .range-readout .range-arrow { color: var(--muted); margin: 0 4px; }
   .chip {
     background: var(--panel);
     color: var(--soft);
