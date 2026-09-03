@@ -145,7 +145,7 @@
   <div class="kpi-grid">
     <KpiCard label="Net production" value={fmtT(plant.net_kg)} sub={`${plant.rolls?.toLocaleString()} rolls`} tone="success" icon="cube" />
     <KpiCard label="Gross production" value={fmtT(plant.gross_kg)} tone="info" icon="scale" />
-    <KpiCard label="Square metres" value={fmt(plant.sqm)} tone="purple" icon="chart" />
+    <KpiCard label="Length" value={fmt(plant.total_length_m) + ' m'} tone="purple" icon="chart" />
     <KpiCard label="Downtime" value={`${plant.downtime_hrs?.toFixed(0)} hrs`} sub={`${plant.downtime_events} events`} tone="warn" icon="clock" />
     <KpiCard label="Scrap" value={fmtT(plant.scrap_kg)} sub={`${plant.scrap_events} events`} tone="danger" icon="trash" />
     <KpiCard label="Scrap % of net" value={plant.scrap_pct_of_net != null ? `${plant.scrap_pct_of_net}%` : '-'} tone="danger" icon="ratio" />

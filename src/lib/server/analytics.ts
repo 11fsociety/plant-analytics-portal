@@ -77,6 +77,7 @@ export function plantSummary(w: Warehouse, shift: ShiftFilter = 'all', range: Da
   const netKg = sum(prod, r => safeNum(r.net_kg));
   const grossKg = sum(prod, r => safeNum(r.gross_kg));
   const sqm = sum(prod, r => safeNum(r.sqm));
+  const totalLengthM = sum(prod, r => safeNum(r.length));
   const scrapKg = sum(scrap, r => safeNum(r.quantity_kg));
   const downMin = sum(dt, r => safeNum(r.minutes));
   return {
@@ -84,6 +85,7 @@ export function plantSummary(w: Warehouse, shift: ShiftFilter = 'all', range: Da
     net_kg: round(netKg, 1),
     gross_kg: round(grossKg, 1),
     sqm: round(sqm, 1),
+    total_length_m: round(totalLengthM, 1),
     downtime_hrs: round(downMin / 60, 2),
     downtime_events: dt.length,
     scrap_kg: round(scrapKg, 1),
