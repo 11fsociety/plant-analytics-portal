@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { loadWarehouse, toPlant } from '$lib/server/warehouse';
+import { toPlant } from '$lib/server/warehouse';
+import { loadCached } from '$lib/server/warehouse-cache';
 import * as A from '$lib/server/analytics';
 import type { ShiftFilter, DateRange } from '$lib/server/analytics';
 
@@ -22,7 +23,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   const range = parseRange(sp);
   const plant = toPlant(sp.get('plant'));
   const compare = sp.get('compare') === 'prev-period';
-  const w = await loadWarehouse(plant);
+  const w = await loadCached(plant);
 
   // Compute previous period if compare enabled and range is present
   let compareRange: DateRange | null = null;
@@ -66,6 +67,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       production: w.production.length,
       downtime: w.downtime.length,
       scrap: w.scrap.length,
+    },
+  }, {
+    headers: {
+      'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
     },
   });
 };

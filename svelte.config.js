@@ -8,6 +8,7 @@ const config = {
     adapter: adapter({
       runtime: 'nodejs20.x',
       maxDuration: 60,
+      memory: 3009,
     }),
     alias: {
       $lib: 'src/lib',

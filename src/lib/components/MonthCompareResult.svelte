@@ -29,7 +29,12 @@
 
     // Sort rows by month ascending for deterministic x-axis order.
     const sorted = rows.slice().sort((a, b) => a.month.localeCompare(b.month));
-    const labels = sorted.map((r) => r.month);
+    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const fmtLabel = (yyyyMm: string) => {
+      const [y, m] = yyyyMm.split('-').map(Number);
+      return `${monthNames[m - 1]}'${String(y).slice(-2)}`;
+    };
+    const labels = sorted.map((r) => fmtLabel(r.month));
     const productionTonnes = sorted.map((r) => r.net_kg / 1000);
     const scrapPct = sorted.map((r) => (r.net_kg > 0 ? (r.scrap_kg / r.net_kg) * 100 : 0));
     const downtimePct = sorted.map((r) => {

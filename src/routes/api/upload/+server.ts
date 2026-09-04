@@ -15,6 +15,7 @@ import type { RequestHandler } from './$types';
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 import { ingestBuffer } from '$lib/server/ingest';
 import { loadWarehouse, saveWarehouse, mergeInto, toPlant, rawPrefixFor, extendMachineMap, cleanupMachineMap } from '$lib/server/warehouse';
+import { invalidate as invalidateWarehouseCache } from '$lib/server/warehouse-cache';
 import { sweepRawFiles } from '$lib/server/sweep';
 import { withMutex } from '$lib/server/mutex';
 
@@ -57,6 +58,7 @@ async function processCompletedUpload(blobUrl: string, sourceName: string, plant
         at: new Date().toISOString(),
       });
       await saveWarehouse(w, plant);
+      invalidateWarehouseCache(toPlant(plant));
       return;
     }
 
@@ -127,6 +129,7 @@ async function processCompletedUpload(blobUrl: string, sourceName: string, plant
 
     const tSave = Date.now();
     await saveWarehouse(w, plant);
+    invalidateWarehouseCache(plant as any);
     console.log(`[upload] saveWarehouse(${plant}) ${Date.now() - tSave}ms; total ${Date.now() - t0}ms; inserted=${inserted}, skipped=${skipped}`);
   });
 }

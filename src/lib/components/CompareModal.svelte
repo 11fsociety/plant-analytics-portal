@@ -13,6 +13,12 @@
 
   $: canCompare = selectedMonths.length >= 2;
 
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  function fmtMonthLabel(yyyyMm: string): string {
+    const [y, m] = yyyyMm.split('-').map(Number);
+    return `${monthNames[m - 1]}'${String(y).slice(-2)}`;
+  }
+
   function toggleMonth(month: string) {
     if (selectedMonths.includes(month)) {
       selectedMonths = selectedMonths.filter((m) => m !== month);
@@ -63,7 +69,7 @@
                   checked={selectedMonths.includes(month)}
                   on:change={() => toggleMonth(month)}
                 />
-                <span>{month}</span>
+                <span>{fmtMonthLabel(month)}</span>
               </label>
             {/each}
           </div>

@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { loadWarehouse, toPlant } from '$lib/server/warehouse';
+import { toPlant } from '$lib/server/warehouse';
+import { loadCached } from '$lib/server/warehouse-cache';
 import * as A from '$lib/server/analytics';
 import { resolveMachineMeta } from '$lib/server/analytics';
 import * as P from '$lib/server/predictive';
@@ -25,7 +26,7 @@ export const GET: RequestHandler = async ({ url, params, locals }) => {
   const range = parseRange(url.searchParams);
   const compare = url.searchParams.get('compare') === 'prev-period';
   const code = params.code!;
-  const w = await loadWarehouse(plant);
+  const w = await loadCached(plant);
 
   // Compute previous period if compare enabled and range is present
   let compareRange: DateRange | null = null;
@@ -76,5 +77,9 @@ export const GET: RequestHandler = async ({ url, params, locals }) => {
     scrap_insights,
     downtime_insights,
     narrative,
+  }, {
+    headers: {
+      'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
+    },
   });
 };
