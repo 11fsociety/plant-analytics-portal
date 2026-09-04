@@ -3,7 +3,7 @@ import { loadWarehouse, type Plant, type Warehouse } from './warehouse';
 type Entry = { data: Warehouse; ts: number };
 const cache = new Map<Plant, Entry>();
 const inflight = new Map<Plant, Promise<Warehouse>>();
-const TTL_MS = 60_000;
+const TTL_MS = 600_000;
 
 export async function loadCached(plant: Plant): Promise<Warehouse> {
   const hit = cache.get(plant);

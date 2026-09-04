@@ -28,6 +28,7 @@
     scrap_kg: number;
     downtime_hrs: number;
     days_in_month: number;
+    total_length_m: number;
   }> = [];
   let compareFetchSeq = 0;
 
@@ -153,6 +154,7 @@
           scrap_kg: monthData?.summary?.scrap_kg ?? 0,
           downtime_hrs: monthData?.summary?.downtime_hrs ?? 0,
           days_in_month: daysInMonth(month),
+          total_length_m: monthData?.summary?.total_length_m ?? 0,
         });
       } catch (err) {
         if (token !== compareFetchSeq) return;
@@ -217,12 +219,16 @@
   {/if}
 
   {#if compareRows.length > 0}
+    {@const isPrinting = machineCode === 'RP01'}
     <section class="compare-results">
       <h2>Month comparison - {data.name}</h2>
       <MonthCompareResult
-        title="Production, scrap %, downtime %"
-        subtitle="Bars = tonnes (left axis). Dashed lines = % (right axis)."
+        title={isPrinting ? 'Length produced, scrap %, downtime %' : 'Production, scrap %, downtime %'}
+        subtitle={isPrinting
+          ? 'Bars = metres (left axis). Dashed lines = % (right axis).'
+          : 'Bars = tonnes (left axis). Dashed lines = % (right axis).'}
         rows={compareRows}
+        productionUnit={isPrinting ? 'meters' : 'tonnes'}
       />
     </section>
   {/if}

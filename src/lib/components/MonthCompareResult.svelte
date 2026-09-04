@@ -9,9 +9,12 @@
     scrap_kg: number;
     downtime_hrs: number;
     days_in_month: number;
+    total_length_m?: number;
   }> = [];
   export let title = 'Month comparison';
   export let subtitle: string | undefined = undefined;
+  /** Printing (RP01) needs meters instead of tonnes on the left axis. */
+  export let productionUnit: 'tonnes' | 'meters' = 'tonnes';
 
   let container: HTMLCanvasElement;
   let chart: any = null;
@@ -35,7 +38,13 @@
       return `${monthNames[m - 1]}'${String(y).slice(-2)}`;
     };
     const labels = sorted.map((r) => fmtLabel(r.month));
-    const productionTonnes = sorted.map((r) => r.net_kg / 1000);
+    const useMeters = productionUnit === 'meters';
+    const productionSeries = useMeters
+      ? sorted.map((r) => r.total_length_m ?? 0)
+      : sorted.map((r) => r.net_kg / 1000);
+    const productionLabel = useMeters ? 'Length produced' : 'Net production';
+    const leftAxisTitle = useMeters ? 'Metres' : 'Tonnes';
+    const leftTickSuffix = useMeters ? ' m' : ' t';
     const scrapPct = sorted.map((r) => (r.net_kg > 0 ? (r.scrap_kg / r.net_kg) * 100 : 0));
     const downtimePct = sorted.map((r) => {
       const monthHrs = r.days_in_month * 24;
@@ -49,8 +58,8 @@
         datasets: [
           {
             type: 'bar',
-            label: 'Net production',
-            data: productionTonnes,
+            label: productionLabel,
+            data: productionSeries,
             backgroundColor: 'rgba(33, 181, 115, 0.85)',
             borderColor: 'rgba(33, 181, 115, 1)',
             borderWidth: 0,
@@ -103,7 +112,11 @@
                 const dsLabel = ctx.dataset.label as string;
                 const v = ctx.parsed.y;
                 if (v == null) return '';
-                if (dsLabel === 'Net production') return `${dsLabel}: ${v.toLocaleString(undefined, { maximumFractionDigits: 1 })} t`;
+                if (dsLabel === productionLabel) {
+                  return useMeters
+                    ? `${dsLabel}: ${v.toLocaleString(undefined, { maximumFractionDigits: 0 })} m`
+                    : `${dsLabel}: ${v.toLocaleString(undefined, { maximumFractionDigits: 1 })} t`;
+                }
                 return `${dsLabel}: ${v.toFixed(2)}%`;
               },
             },
@@ -121,10 +134,10 @@
             ticks: {
               color: 'rgba(33, 181, 115, 1)',
               font: { size: 10 },
-              callback: (v: any) => `${v} t`,
+              callback: (v: any) => `${v.toLocaleString ? v.toLocaleString() : v}${leftTickSuffix}`,
             },
             beginAtZero: true,
-            title: { display: true, text: 'Tonnes', color: 'rgba(33, 181, 115, 1)', font: { size: 11 } },
+            title: { display: true, text: leftAxisTitle, color: 'rgba(33, 181, 115, 1)', font: { size: 11 } },
           },
           yPct: {
             type: 'linear',

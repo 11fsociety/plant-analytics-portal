@@ -72,7 +72,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     date_range: A.dateRange(w),
   }, {
     headers: {
-      'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
+      'Cache-Control': 'private, max-age=300, stale-while-revalidate=300',
     },
   });
 };

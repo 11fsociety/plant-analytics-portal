@@ -70,7 +70,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     },
   }, {
     headers: {
-      'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
+      'Cache-Control': 'private, max-age=300, stale-while-revalidate=300',
     },
   });
 };
